@@ -4,7 +4,7 @@ RUN mkdir /job
 WORKDIR /job
 VOLUME ["/job/data", "/job/src", "/job/work", "/job/output"]
 
-RUN apt update && apt install -y build-essential vim
+RUN apt update && apt install -y build-essential # triton needs gcc
 
 COPY requirements.txt /job/requirements.txt
 RUN pip install -r /job/requirements.txt
@@ -19,7 +19,10 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     git \
     curl \
+    less \
+    htop \
     vim
+
 
 COPY requirements_dev.txt /job/requirements_dev.txt
 

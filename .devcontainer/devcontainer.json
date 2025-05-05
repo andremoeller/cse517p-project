@@ -32,5 +32,6 @@
     // Specify container environment variables
     "remoteEnv": {
         "PYTHONPATH": "/workspace"
-    }
+    },
+    "runArgs": ["--gpus", "all"]
 }

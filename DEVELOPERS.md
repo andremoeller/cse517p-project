@@ -4,13 +4,13 @@ Instructions for development.
 
 ## Development
 
-`docker build --target runtime -t evabyte:runtime .` to build runtime image.
+Either open project root directory in VSCode and load devcontainer, or build via `make`:
 
-`docker build --target dev -t evabyte:dev .` to build dev image.
-
-`docker run -ti --gpus all -v"$(pwd)/src:/job/src" --entrypoint bash evabyte:dev` to bash into dev image and mount local src directory into image (in read/write mode -- writes inside container are persisted to host).
-
-Or, open project root directory in VSCode and load devcontainer.
+- `make build-runtime` to build the minimal runtime image `evabyte:runtime`
+- `make build-dev` to build the development image
+- `run-runtime` to run an interactive shell in the minimal runtime image
+- `run-dev` to run an interactive shell in the development image
+- `shell-dev` to open an additional shell in the development image
 
 ## Notes
 
