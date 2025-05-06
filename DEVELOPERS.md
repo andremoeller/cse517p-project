@@ -11,6 +11,13 @@ Either open project root directory in VSCode and load devcontainer, or build via
 - `run-runtime` to run an interactive shell in the minimal runtime image
 - `run-dev` to run an interactive shell in the development image
 - `shell-dev` to open an additional shell in the development image
+- `submit` to test the assets in the submit/ directory using the commands the project grader will run.
+
+The way I'm developing is this: I've started a g2-standard-4, which is what the project grader will use. I allow SSH access onto that host.
+
+I open VS code and use the Remote Development feature to add a remote host over ssh to the google cloud VM. I clone the repository on the remote host, and open the folder as a Dev Container. I develop entirely within the dev container.
+
+To prepare a submission, I run `bash submit.sh`, then scp the submit.zip over to my local machine. To make sure the submission works, you can run `make submit`.
 
 ## Notes
 
