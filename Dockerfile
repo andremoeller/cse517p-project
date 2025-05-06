@@ -9,7 +9,7 @@ RUN apt update && apt install -y build-essential # triton needs gcc
 COPY requirements.txt /job/requirements.txt
 RUN pip install -r /job/requirements.txt
 
-COPY src /job/src
+COPY . /job/
 
 # development image -- this is the one devcontainer.json uses.
 # we can put a kitchen sink here.
