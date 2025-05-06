@@ -6,7 +6,7 @@ rm -rf submit submit.zip
 mkdir -p submit
 
 # submit team.txt
-printf "Victor Zhong,vzhong\nNoah Smith,nasmith\nSanta Claus,sclaus" > submit/team.txt
+printf "André Kang-Moeller,amoell\nPaul Curry,paulmc\nAbdelelah Salama,engobada" > submit/team.txt
 
 # train model
 python src/model.py train --work_dir work
