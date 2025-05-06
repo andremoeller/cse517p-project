@@ -48,18 +48,17 @@ class MyModel:
         # your code here
         preds = []
         for prompt in data:
-            input_ids = torch.tensor([[1] + [b + 64 for b in prompt.encode("utf-8")]]).to("cuda")
+            encoded = self.tokenizer(prompt, return_tensors="pt")
+            input_ids = encoded.input_ids.to("cuda")
             seq_len = input_ids.shape[1]
             position_ids = torch.arange(seq_len, dtype=torch.long, device="cuda").unsqueeze(0)
             with torch.no_grad():
-                outputs = self.model(input_ids=input_ids, position_ids=position_ids)
-                logits = outputs[0]
+                logits = self.model(input_ids=input_ids, position_ids=position_ids)[0]
             next_logits = logits[0, -1, :]
             topk = torch.topk(next_logits, k=3)
             top_ids = topk.indices.tolist()
-            top_bytes = [bytes([token_id - 64]) for token_id in top_ids]
-            top_bytes_decoded = [byte.decode("utf-8") for byte in top_bytes]
-            preds.append(''.join(top_bytes_decoded))
+            top_tokens_decoded = self.tokenizer.batch_decode([[tid] for tid in top_ids], clean_up_tokenization_spaces=False)
+            preds.append(''.join(top_tokens_decoded))
         return preds
 
     def save(self, work_dir):

@@ -21,7 +21,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     less \
     htop \
-    vim
+    vim \
+    zip
 
 
 COPY requirements_dev.txt /job/requirements_dev.txt
