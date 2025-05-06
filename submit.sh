@@ -23,5 +23,8 @@ cp -r src submit/src
 # submit checkpoints
 cp -r work submit/work
 
+cp requirements.txt submit/
+cp requirements_dev.txt submit/
+
 # make zip file
 zip -r submit.zip submit
