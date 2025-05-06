@@ -12,7 +12,7 @@ printf "André Kang-Moeller,amoell\nPaul Curry,paulmc\nAbdelelah Salama,engobada
 python src/model.py train --work_dir work
 
 # make predictions on example data submit it in pred.txt
-python src/model.py test --work_dir work --test_data example/input.txt --test_output submit/pred.txt
+python src/model.py test --work_dir work --test_data data/input.txt --test_output data/pred.txt
 
 # submit docker file
 cp Dockerfile submit/Dockerfile
