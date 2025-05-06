@@ -40,7 +40,7 @@ shell-dev:
 
 submit:
 	cd submit && \
-		mkdir -p output && \
+		mkdir -p output || true && \
 		docker build -t cse517-proj/demo -f Dockerfile . && \
 		docker run --gpus all --rm \
 			-v "$$(pwd)/src:/job/src" \

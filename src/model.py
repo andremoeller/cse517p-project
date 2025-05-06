@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import os
-import string
 import random
+import time
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 import torch
@@ -15,8 +15,13 @@ class MyModel:
 
     def __init__(self):
         self.tokenizer = AutoTokenizer.from_pretrained("evabyte/EvaByte", trust_remote_code=True)
-        self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", torch_dtype=torch.bfloat16, trust_remote_code=True).eval().to("cuda")
-        self.model.eval()
+        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", torch_dtype=torch.bfloat16, trust_remote_code=True).eval().to("cuda")
+        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", torch_dtype=torch.bfloat16, trust_remote_code=True, load_in_8bit=True).eval().to("cuda")
+        #     assert q.dtype in [torch.bfloat16, torch.float], "Only support bf16 and fp32 for now"
+        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", device_map="auto", trust_remote_code=True, load_in_8bit=True).eval()
+        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", device_map="auto", trust_remote_code=True).eval()
+        self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", device_map="auto", torch_dtype=torch.bfloat16, trust_remote_code=True).eval()
+        # self.model = torch.compile(self.model)
 
     @classmethod
     def load_training_data(cls):
@@ -47,6 +52,7 @@ class MyModel:
     def run_pred(self, data):
         # your code here
         preds = []
+        start = time.time()
         for prompt in data:
             encoded = self.tokenizer(prompt, return_tensors="pt")
             input_ids = encoded.input_ids.to("cuda")
@@ -59,7 +65,85 @@ class MyModel:
             top_ids = topk.indices.tolist()
             top_tokens_decoded = self.tokenizer.batch_decode([[tid] for tid in top_ids], clean_up_tokenization_spaces=False)
             preds.append(''.join(top_tokens_decoded))
+        end = time.time()
+        elapsed = end - start
+        samples_per_sec = float(len(data)) / elapsed
+        print(f"total inference time: {elapsed:.03f} for {len(data)} samples. {samples_per_sec:.03f} samples/sec")
         return preds
+
+    
+    def run_pred(self, data, batch_size: int = 4):
+        """
+        batch size, max_length for tokenizer:
+        - 32, 32: OOM
+        - 16, 32: OOM
+        - 16, 16: OOM
+        - 2, 16: OOM
+        - 32, 4: 
+        - 8, 32:  assert chunk_mask is not None: File "/root/.cache/huggingface/modules/transformers_modules/evabyte/EvaByte/1c6283b2c439b731897e4202af789da99ba9ace2/eva_agg_kernel.py", line 1420, in triton_eva_agg_fwd
+        - 4, 32: assert chunk_mask is not None:  File "/root/.cache/huggingface/modules/transformers_modules/evabyte/EvaByte/1c6283b2c439b731897e4202af789da99ba9ace2/eva_agg_kernel.py", line 1420, in triton_eva_agg_fwd 
+
+        """
+        device = "cuda"
+        all_preds = []
+        start = time.time()
+        # Process in batches
+        for i in range(0, len(data), batch_size):
+            batch = data[i : i + batch_size]
+
+            # Tokenize & pad on CPU
+            encoded = self.tokenizer(
+                batch,
+                return_tensors="pt",
+                padding="max_length",
+                truncation=True,
+                max_length=32,
+                return_attention_mask=True,
+            )
+            self.tokenizer.truncation_side = "left"
+            self.tokenizer.padding_side    = "right"
+
+            input_ids = encoded.input_ids.to(device, non_blocking=True)
+            attention_mask = encoded.attention_mask.to(device, non_blocking=True)
+
+
+            # If your model truly needs position_ids, build one per batch:
+            # seq_len = input_ids.shape[1]
+            # position_ids = torch.arange(
+            #    seq_len, device=device
+            # ).unsqueeze(0).expand(input_ids.size(0), -1)
+
+            with torch.inference_mode():
+                outputs = self.model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    use_cache=False,
+                )
+                logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
+
+            # Grab the last-token logits for each example
+            next_logits = logits[:, -1, :]
+            topk_vals, topk_idxs = next_logits.topk(k=3, dim=-1)
+
+            # Decode in batch: this returns List[List[str]] of shape (batch, 3)
+            # Note: batch_decode wants a list of lists of token-ids
+            token_lists = [
+                idxs.cpu().tolist() for idxs in topk_idxs
+            ]
+            str_lists = self.tokenizer.batch_decode(
+                token_lists,
+                clean_up_tokenization_spaces=False,
+                skip_special_tokens=True,
+            )
+
+            # Collect predictions—join the 3 tokens, or pick str_lists[i][0] if only top-1
+            all_preds.extend("".join(lst) for lst in str_lists)
+        end = time.time()
+        elapsed = end - start
+        samples_per_sec = float(len(data)) / elapsed
+        print(f"total inference time: {elapsed:.03f} for {len(data)} samples. {samples_per_sec:.03f} samples/sec")
+        return all_preds
+
 
     def save(self, work_dir):
         # your code here
@@ -91,13 +175,13 @@ if __name__ == '__main__':
             print('Making working directory {}'.format(args.work_dir))
             os.makedirs(args.work_dir)
         print('Instatiating model')
-        model = MyModel()
+        # model = MyModel()
         print('Loading training data')
-        train_data = MyModel.load_training_data()
+        # train_data = MyModel.load_training_data()
         print('Training')
-        model.run_train(train_data, args.work_dir)
+        # model.run_train(train_data, args.work_dir)
         print('Saving model')
-        model.save(args.work_dir)
+        # model.save(args.work_dir)
     elif args.mode == 'test':
         print('Loading model')
         model = MyModel.load(args.work_dir)
