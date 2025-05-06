@@ -1,0 +1,37 @@
+{
+    // Name of the dev container
+    "name": "CSE517P Project Dev Container",
+    // Dockerfile to build the container
+    "build": {
+        "dockerfile": "../Dockerfile",
+        "target": "dev"
+    },
+    // Features to include in the dev container
+    "features": {},
+    // Customizations for the VS Code environment
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-toolsai.jupyter"
+            ]
+        }
+    },
+    // Forward ports from the container to the host
+    "forwardPorts": [
+        8080,
+        8888
+    ],
+    // Mount local folders into the container
+    "mounts": [
+        "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+    ],
+    // Set the default workspace folder
+    "workspaceFolder": "/workspace",
+    // Specify container environment variables
+    "remoteEnv": {
+        "PYTHONPATH": "/workspace"
+    },
+    "runArgs": ["--gpus", "all"]
+}

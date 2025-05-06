@@ -6,13 +6,13 @@ rm -rf submit submit.zip
 mkdir -p submit
 
 # submit team.txt
-printf "Victor Zhong,vzhong\nNoah Smith,nasmith\nSanta Claus,sclaus" > submit/team.txt
+printf "André Kang-Moeller,amoell\nPaul Curry,paulmc\nAbdelelah Salama,engobada" > submit/team.txt
 
 # train model
-python src/myprogram.py train --work_dir work
+python src/model.py train --work_dir work
 
 # make predictions on example data submit it in pred.txt
-python src/myprogram.py test --work_dir work --test_data example/input.txt --test_output submit/pred.txt
+python src/model.py test --work_dir work --test_data example/input.txt --test_output submit/pred.txt
 
 # submit docker file
 cp Dockerfile submit/Dockerfile
@@ -22,6 +22,9 @@ cp -r src submit/src
 
 # submit checkpoints
 cp -r work submit/work
+
+cp requirements.txt submit/
+cp requirements_dev.txt submit/
 
 # make zip file
 zip -r submit.zip submit

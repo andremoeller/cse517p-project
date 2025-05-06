@@ -4,11 +4,19 @@ import string
 import random
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
 
 class MyModel:
     """
     This is a starter model to get you started. Feel free to modify this file.
     """
+
+    def __init__(self):
+        self.tokenizer = AutoTokenizer.from_pretrained("evabyte/EvaByte", trust_remote_code=True)
+        self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", torch_dtype=torch.bfloat16, trust_remote_code=True).eval().to("cuda")
+        self.model.eval()
 
     @classmethod
     def load_training_data(cls):
@@ -39,11 +47,18 @@ class MyModel:
     def run_pred(self, data):
         # your code here
         preds = []
-        all_chars = string.ascii_letters
-        for inp in data:
-            # this model just predicts a random character each time
-            top_guesses = [random.choice(all_chars) for _ in range(3)]
-            preds.append(''.join(top_guesses))
+        for prompt in data:
+            encoded = self.tokenizer(prompt, return_tensors="pt")
+            input_ids = encoded.input_ids.to("cuda")
+            seq_len = input_ids.shape[1]
+            position_ids = torch.arange(seq_len, dtype=torch.long, device="cuda").unsqueeze(0)
+            with torch.no_grad():
+                logits = self.model(input_ids=input_ids, position_ids=position_ids)[0]
+            next_logits = logits[0, -1, :]
+            topk = torch.topk(next_logits, k=3)
+            top_ids = topk.indices.tolist()
+            top_tokens_decoded = self.tokenizer.batch_decode([[tid] for tid in top_ids], clean_up_tokenization_spaces=False)
+            preds.append(''.join(top_tokens_decoded))
         return preds
 
     def save(self, work_dir):
