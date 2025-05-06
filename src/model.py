@@ -52,7 +52,7 @@ class MyModel:
             seq_len = input_ids.shape[1]
             position_ids = torch.arange(seq_len, dtype=torch.long, device="cuda").unsqueeze(0)
             with torch.no_grad():
-                outputs = model(input_ids=input_ids, position_ids=position_ids)
+                outputs = self.model(input_ids=input_ids, position_ids=position_ids)
                 logits = outputs[0]
             next_logits = logits[0, -1, :]
             topk = torch.topk(next_logits, k=3)
