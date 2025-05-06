@@ -5,7 +5,7 @@ DEV_TAG=evabyte:dev
 # Dockerfile location
 DOCKERFILE=Dockerfile
 
-.PHONY: all build-runtime build-dev run-runtime run-dev shell-dev
+.PHONY: all build-runtime build-dev run-runtime run-dev shell-dev submit
 
 all: build-runtime build-dev
 
@@ -38,3 +38,14 @@ run-dev:
 shell-dev:
 	docker exec -it devcontainer /bin/bash
 
+submit:
+	cd submit && \
+		mkdir -p output && \
+		docker build -t cse517-proj/demo -f Dockerfile . && \
+		docker run --gpus all --rm \
+			-v "$$(pwd)/src:/job/src" \
+			-v "$$(pwd)/work:/job/work" \
+			-v "$$(pwd)/../example:/job/data" \
+			-v "$$(pwd)/output:/job/output" \
+			cse517-proj/demo \
+			bash /job/src/predict.sh /job/data/input.txt /job/output/pred.txt
