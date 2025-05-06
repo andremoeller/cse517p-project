@@ -38,9 +38,15 @@ class MyModel:
             trust_remote_code="True"
         )
         """
-        self.tokenizer = AutoTokenizer.from_pretrained("google/byt5-small", use_fast=True)
+        # small, 300M
+        # base,  500M
+        # large, 1.2B
+        # xl,    3.7B
+        # xxl,   13B
+
+        self.tokenizer = AutoTokenizer.from_pretrained("google/byt5-xl", use_fast=True)
         self.model     = AutoModelForSeq2SeqLM.from_pretrained(
-            "google/byt5-small",
+            "google/byt5-xl",
             torch_dtype=torch.bfloat16,
             device_map="auto"
         ).eval()
@@ -76,8 +82,10 @@ class MyModel:
 
     def run_pred(self, data):
         """
-        - with byt5-small: ~14 samples/sec without batching.
-        - nvidia-smi on 20K examples: 849MiB/23034MiB, ~15-20%
+        - with byt5-small: ~39 samples/sec without batching, peak 0.57GB mem allocated.
+          - nvidia-smi on 20K examples: 849MiB/23034MiB, ~15-20%
+        - with byt5-xl: ~16 samples/sec, 6.97GB peak. (~2x model)
+        - with byt5-xxl: ? (need more disk...)
         """
         device = "cuda"
         torch.cuda.reset_peak_memory_stats(device)
