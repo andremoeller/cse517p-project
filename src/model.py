@@ -52,14 +52,82 @@ class MyModel:
         # your code here
         pass
 
-    def run_pred(self, data):
+    def run_pred(self, data, batch_size: int = 32):
+        """
+        Minibatched inference:
+
+        - byt5-xl: 
+        """
+        # TODO: cpu mode isn't quite ready -- need some changes to make apple mps (metal performance shaders) work.
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        if device == "cuda":
+            torch.cuda.reset_peak_memory_stats(device)
+        preds = []
+        start = time.time()
+        num_prompts = len(data)
+        batch_count = 0
+        for idx in range(0, num_prompts, batch_size):
+            batch_count += 1
+            start_batch = time.time()
+            batch_prompts = data[idx : idx + batch_size]
+            done = min(idx, num_prompts)
+            print(f"batch {idx / batch_size}/{len(data) // batch_size}; {done}/{num_prompts} inferences")
+
+            # Tokenize the whole batch, pad to longest in batch
+            encoded = self.tokenizer(
+                batch_prompts,
+                return_tensors="pt",
+                truncation=True,
+                max_length=1024,
+                padding=True,
+            ).to(device)
+
+            with torch.inference_mode():
+                output_ids = self.model.generate(
+                    **encoded,
+                    max_new_tokens=1,
+                    do_sample=False
+                )
+
+            # grab the generated token for each in the batch
+            # output_ids shape: (batch, seq_len+1)
+            # so we take output_ids[:, -1]
+            next_ids = output_ids[:, -1]
+            # decode each single-token tensor
+            for tid in next_ids:
+                preds.append(
+                    self.tokenizer.decode(
+                        [int(tid)],
+                        clean_up_tokenization_spaces=False
+                    )
+                )
+            end_batch = time.time()
+            elapsed_batch = end_batch - start_batch
+            samples_per_sec_batch = batch_size / elapsed_batch
+            print(f"minibatch with {batch_size} samples: {elapsed_batch * 1000:.03f} ms ({samples_per_sec_batch:.03f} samples/sec)")
+
+        end = time.time()
+        elapsed = end - start
+        samples_per_sec = len(data) / elapsed
+        if device == "cuda":
+            torch.cuda.reset_peak_memory_stats(device)
+            peak_gb = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+
+        print(f"total inference time: {elapsed:.03f}s for {num_prompts} samples "
+            f"({samples_per_sec:.03f} samples/sec)")
+        if device == "cuda":
+            print(f"peak GPU memory allocated: {peak_gb:.2f} GB")
+        return preds
+
+    def run_pred_single(self, data):
         """
         Predicts without batching:
         - 
 
         - with byt5-small: ~39 samples/sec without batching, peak 0.57GB mem allocated.
           - nvidia-smi on 20K examples: 849MiB/23034MiB, ~15-20%
-        - with byt5-xl: ~16 samples/sec, 6.97GB peak. (~2x model)
+        - with byt5-xl: ~16 samples/sec, 6.97GB peak. (~2x model), on 20K.
         """
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         torch.cuda.reset_peak_memory_stats(device)
@@ -102,17 +170,19 @@ class MyModel:
         return preds
 
     def save(self, work_dir):
+        pass
         # your code here
         # this particular model has nothing to save, but for demonstration purposes we will save a blank file
-        with open(os.path.join(work_dir, 'model.checkpoint'), 'wt') as f:
-            f.write('dummy save')
+        # with open(os.path.join(work_dir, 'model.checkpoint'), 'wt') as f:
+            # f.write('dummy save')
 
     @classmethod
     def load(cls, work_dir):
+        pass
         # your code here
         # this particular model has nothing to load, but for demonstration purposes we will load a blank file
-        with open(os.path.join(work_dir, 'model.checkpoint')) as f:
-            dummy_save = f.read()
+        # with open(os.path.join(work_dir, 'model.checkpoint')) as f:
+            # dummy_save = f.read()
         return MyModel()
 
 

@@ -49,3 +49,6 @@ submit:
 			-v "$$(pwd)/output:/job/output" \
 			cse517-proj/demo \
 			bash /job/src/predict.sh /job/data/input.txt /job/output/pred.txt
+
+generate-data:
+	python generate_synthetic_data.py
