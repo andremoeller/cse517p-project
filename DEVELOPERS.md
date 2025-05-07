@@ -13,11 +13,11 @@ Either open project root directory in VSCode and load devcontainer, or build via
 - `shell-dev` to open an additional shell in the development image
 - `submit` to test the assets in the submit/ directory using the commands the project grader will run.
 
-The way I'm developing is this: I've started a g2-standard-4, which is what the project grader will use. I allow SSH access onto that host.
+The way I'm developing is this: I've started a g2-standard-4, which is what the project grader will use. I allow SSH access onto that host. Unfortunately, for the source machine image, I'm using a custom VM I'd made back in october, and I don't recall the source machine image I'd used to make it. It has some baked-in code and configuration, so I doubt I'll be able to open it up for sharing. It's running CUDA 12.4 -- I think I'd found some publicly accessible base image for it.
 
 I open VS code and use the Remote Development feature to add a remote host over ssh to the google cloud VM. I clone the repository on the remote host, and open the folder as a Dev Container. I develop entirely within the dev container.
 
-To prepare a submission, I run `bash submit.sh`, then scp the submit.zip over to my local machine. To make sure the submission works, you can run `make submit`.
+To prepare a submission, I run `bash submit.sh`, then scp the submission file over to my local machine. To make sure the submission works, you can run `make submit`, assuming the source code artifacts in the `submit` directory are up-to-date.
 
 ## Notes
 
