@@ -5,8 +5,7 @@ import time
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 import torch
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 class MyModel:
     """
@@ -19,12 +18,13 @@ class MyModel:
         # large, 1.2B
         # xl,    3.7B
         # xxl,   13B
-        self.tokenizer = AutoTokenizer.from_pretrained("google/byt5-xl", use_fast=True)
-        self.model     = AutoModelForSeq2SeqLM.from_pretrained(
-            "google/byt5-xl",
+        self.tokenizer = AutoTokenizer.from_pretrained("google/mt5-large", use_fast=True)
+        self.model     = AutoModelForCausalLM.from_pretrained(
+            "gpt",
             torch_dtype=torch.bfloat16,
             device_map="auto"
         ).eval()
+        
 
     @classmethod
     def load_training_data(cls):
@@ -51,6 +51,78 @@ class MyModel:
     def run_train(self, data, work_dir):
         # your code here
         pass
+
+    def run_pred(self, data, batch_size: int = 32):
+        """
+        Minibatched inference with GPT-2 for next‐character prediction.
+        """
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        if device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(device)
+        preds = []
+        start = time.time()
+        num_prompts = len(data)
+        batch_count = 0
+
+        for idx in range(0, num_prompts, batch_size):
+            batch_count += 1
+            start_batch = time.time()
+            batch_prompts = data[idx : idx + batch_size]
+            done = min(idx, num_prompts)
+            print(f"batch {idx // batch_size}/{(num_prompts-1)//batch_size}; {done}/{num_prompts} inferences")
+
+            # Tokenize the whole batch, pad to longest, left-truncate to last 1024 tokens
+            encoded = self.tokenizer(
+                batch_prompts,
+                return_tensors="pt",
+                padding="longest",
+                truncation=True,
+                truncation_side="left",
+                max_length=1024,
+            ).to(device)
+
+            # Generate exactly one new token per prompt
+            with torch.inference_mode():
+                out_ids = self.model.generate(
+                    input_ids=encoded.input_ids,
+                    attention_mask=encoded.attention_mask,
+                    max_new_tokens=1,
+                    do_sample=False,
+                )
+
+            # --- key fix: decode the *last* token, not the 0th one ---
+            # out_ids: (batch, seq_len + 1)
+            # the newly generated token is at index -1
+            gen_ids = out_ids[:, -1]
+
+            for tid in gen_ids:
+                preds.append(
+                    self.tokenizer.decode(
+                        [int(tid)],
+                        skip_special_tokens=True,
+                        clean_up_tokenization_spaces=False
+                    )
+                )
+
+            end_batch = time.time()
+            elapsed_batch = end_batch - start_batch
+            samples_per_sec_batch = batch_size / elapsed_batch
+            print(f"minibatch with {batch_size} samples: {elapsed_batch*1000:.03f} ms "
+                  f"({samples_per_sec_batch:.03f} samples/sec)")
+
+        # final stats
+        end = time.time()
+        elapsed = end - start
+        samples_per_sec = num_prompts / elapsed
+        print(f"total inference time: {elapsed:.03f}s for {num_prompts} samples "
+              f"({samples_per_sec:.03f} samples/sec)")
+
+        if device.type == "cuda":
+            peak_gb = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+            print(f"peak GPU memory allocated: {peak_gb:.2f} GB")
+
+        return preds
 
     def run_pred_batch(self, data, batch_size: int = 32):
         """
@@ -82,19 +154,37 @@ class MyModel:
                 max_length=1024,
                 padding=True,
             ).to(device)
+            
 
+            """
             with torch.inference_mode():
                 output_ids = self.model.generate(
                     **encoded,
                     max_new_tokens=1,
                     do_sample=False
                 )
+            """
+            with torch.inference_mode():
+                out_ids = self.model.generate(
+                    input_ids=encoded.input_ids,
+                    attention_mask=encoded.attention_mask,
+                    max_new_tokens=1,
+                    do_sample=False,
+                )
 
+            for tid in out_ids[:, 0]:
+                # skip_special_tokens=True will drop <pad>/<eos> if they appear
+                preds.append(self.tokenizer.decode(
+                    [int(tid)],
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=False
+                ))
             # grab the generated token for each in the batch
             # output_ids shape: (batch, seq_len+1)
             # so we take output_ids[:, -1]
-            next_ids = output_ids[:, -1]
+            # next_ids = output_ids[:, -1]
             # decode each single-token tensor
+            """
             for tid in next_ids:
                 preds.append(
                     self.tokenizer.decode(
@@ -102,6 +192,7 @@ class MyModel:
                         clean_up_tokenization_spaces=False
                     )
                 )
+            """
             end_batch = time.time()
             elapsed_batch = end_batch - start_batch
             samples_per_sec_batch = batch_size / elapsed_batch
@@ -120,7 +211,7 @@ class MyModel:
             print(f"peak GPU memory allocated: {peak_gb:.2f} GB")
         return preds
 
-    def run_pred(self, data):
+    def run_pred_single(self, data):
         """
         Predicts without batching:
         - 
