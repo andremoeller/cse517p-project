@@ -29,4 +29,4 @@ cp requirements.txt submit/
 cp requirements_dev.txt submit/
 
 # make zip file
-zip -r Project517Group17 submit
+zip -r Project517Group17.zip submit
