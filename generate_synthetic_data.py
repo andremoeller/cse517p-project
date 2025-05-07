@@ -27,11 +27,16 @@ def load_sentences():
 def generate_dataset(
     n=20000,
     min_len=5,
-    max_len=100,
+    max_len=300,
     input_path="data/input.txt",
     answer_path="data/answer.txt",
     joined_path="data/joined.txt"
 ):
+    """
+    Generates n lines of text into file at input_path where the last character
+    is 'missing', and placed in answer_path. joined_path is just for debugging,
+    showing the 'true' intended word missing the last character.
+    """
     os.makedirs(os.path.dirname(input_path), exist_ok=True)
     sentences = load_sentences()
 
@@ -81,11 +86,4 @@ def generate_dataset(
     print(f" • {joined_path}")
 
 if __name__ == "__main__":
-    generate_dataset(
-        n=20000,
-        min_len=5,
-        max_len=40,
-        input_path="data/input.txt",
-        answer_path="data/answer.txt",
-        joined_path="data/joined.txt"
-    )
+    generate_dataset()

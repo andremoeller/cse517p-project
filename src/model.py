@@ -52,7 +52,7 @@ class MyModel:
         # your code here
         pass
 
-    def run_pred(self, data, batch_size: int = 32):
+    def run_pred_batch(self, data, batch_size: int = 32):
         """
         Minibatched inference:
 
@@ -120,7 +120,7 @@ class MyModel:
             print(f"peak GPU memory allocated: {peak_gb:.2f} GB")
         return preds
 
-    def run_pred_single(self, data):
+    def run_pred(self, data):
         """
         Predicts without batching:
         - 
@@ -154,11 +154,27 @@ class MyModel:
                     max_new_tokens=1,
                     do_sample=False
                 )
+            print(f"output_ids: {output_ids}")
 
-            next_token = output_ids[0, -1:]
-            pred_char = self.tokenizer.decode(next_token, clean_up_tokenization_spaces=False)
+            # pred_char = self.tokenizer.decode(next_token, clean_up_tokenization_spaces=False)
+            # Get token IDs after <pad> (ID 0)
+            generated_ids = output_ids[0][1:]  # skip the <pad> token
+
+            if len(generated_ids) == 0:
+                pred_char = ""
+            else:
+                pred_char = self.tokenizer.decode(
+                    generated_ids,
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=False
+                )
             preds.append(pred_char)
 
+            print(f"prompt: {prompt}")
+            print(f"pred_char: {pred_char}")
+
+        print(f"prompt: {prompt}")
+        print(f"preds: {preds}")
         end = time.time()
         elapsed = end - start
         samples_per_sec = len(data) / elapsed
@@ -166,7 +182,7 @@ class MyModel:
 
         print(f"total inference time: {elapsed:.03f}s for {len(data)} samples "
             f"({samples_per_sec:.03f} samples/sec)")
-        print(f"peak GPU memory allocated: {peak_gb:.2f} GB")
+        print(f"peak GPU memory allocated: {peak_gb:.2f} GB") # 
         return preds
 
     def save(self, work_dir):
