@@ -40,7 +40,7 @@ shell-dev:
 
 submit:
 	cd submit && \
-		mkdir -p output && \
+		mkdir -p output || true && \
 		docker build -t cse517-proj/demo -f Dockerfile . && \
 		docker run --gpus all --rm \
 			-v "$$(pwd)/src:/job/src" \
@@ -49,3 +49,6 @@ submit:
 			-v "$$(pwd)/output:/job/output" \
 			cse517-proj/demo \
 			bash /job/src/predict.sh /job/data/input.txt /job/output/pred.txt
+
+generate-data:
+	python generate_synthetic_data.py

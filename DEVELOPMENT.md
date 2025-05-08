@@ -1,0 +1,33 @@
+# Overview
+
+Instructions for development.
+
+## Development
+
+Either open project root directory in VSCode and load devcontainer, or build via `make`:
+
+- `make build-runtime` to build the minimal runtime image `evabyte:runtime`
+- `make build-dev` to build the development image
+- `run-runtime` to run an interactive shell in the minimal runtime image
+- `run-dev` to run an interactive shell in the development image
+- `shell-dev` to open an additional shell in the development image
+- `submit` to test the assets in the submit/ directory using the commands the project grader will run.
+
+The way I'm developing is this: I've started a g2-standard-4, which is what the project grader will use. I allow SSH access onto that host. Unfortunately, for the source machine image, I'm using a custom VM I'd made back in october, and I don't recall the source machine image I'd used to make it. It has some baked-in code and configuration, so I doubt I'll be able to open it up for sharing. It's running CUDA 12.4 -- I think I'd found some publicly accessible base image for it.
+
+I open VS code and use the Remote Development feature to add a remote host over ssh to the google cloud VM. I clone the repository on the remote host, and open the folder as a Dev Container. I develop entirely within the dev container.
+
+To prepare a submission, I run `bash submit.sh`, then scp the submission file over to my local machine. To make sure the submission works, you can run `make submit`, assuming the source code artifacts in the `submit` directory are up-to-date.
+
+## Notes
+
+Various notes and thoughts that occurred that we may want to keep in mind.
+
+1. According to Ed in [this discussion](https://edstem.org/us/courses/77432/discussion/6630668), timing starts when "docker build -t" _starts_, rather than when it ends. This means optimizing build time and keeping on the same base image will be helpful for speed. We should try to find the right balance between setup time (docker build time, model download and load time) and inference time.
+2. The base image for the inference runtime doesn't have gcc or clang, which are required by triton.
+3. I've asked [here](https://edstem.org/us/courses/77432/discussion/6658204) what machine we'll be running on. GPU type will be especially important: we'll be on an L4 (24GB).
+4. We may be at risk of running OOM on the full dataset, or running really slowly without batching. I made a cheap attempt at batching but ran OOM without trying much further. The test dataset will be 20000 examples according to [this comment](https://edstem.org/us/courses/77432/discussion/6653048).
+5. We're at high risk of running out of time for the full test dataset if we don't do at least some amount of batching. We have one hour. Without batching, we do about 2 samples/sec on 20,000 examples, which will take about 3 hours. We may want to create a synthetic test dataset and explore options for reducing memory footprint to iterate on performance. We can quantize in the short run to prepare a valid submission for checkpoint 2. We may want to switch models to, e.g., [byt5-xxl](https://huggingface.co/google/byt5-xxl).
+6. I've written a script to generate synthetic data for inference performance testing; we should replace this with other datasets to test accuracy.
+7. To make for a safer checkpoint submission I'd prefer submitting a smaller byt5 model so we don't go OOM or exhaust our 1hr window, and use that as our model accuracy and throughput baseline to improve upon.
+8. max_length, the number of bytes to look back, will be important to tune for evabyte for performance: we may tolerate relatively small lengths.
