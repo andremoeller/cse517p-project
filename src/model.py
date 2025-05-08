@@ -15,19 +15,7 @@ class MyModel:
 
     def __init__(self):
         self.tokenizer = AutoTokenizer.from_pretrained("evabyte/EvaByte", trust_remote_code=True)
-        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", torch_dtype=torch.bfloat16, trust_remote_code=True).eval().to("cuda")
-        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", torch_dtype=torch.bfloat16, trust_remote_code=True, load_in_8bit=True).eval().to("cuda")
-        #     assert q.dtype in [torch.bfloat16, torch.float], "Only support bf16 and fp32 for now"
-        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", device_map="auto", trust_remote_code=True, load_in_8bit=True).eval()
-        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", device_map="auto", trust_remote_code=True).eval()
         self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", device_map="auto", torch_dtype=torch.bfloat16, trust_remote_code=True).eval()
-        # "W0506 07:43:07.249000 28992 site-packages/torch/_inductor/utils.py:1137] [0/0] Not enough SMs to use max_autotune_gemm mode"
-        # very, very slow.
-        # self.model = torch.compile(self.model)
-        # warmup attempt for better perf reading:
-        # _ = self.model(input_ids=torch.zeros(1,16,device="cuda",dtype=torch.long), use_cache=False)
-        # torch.cuda.synchronize()
-        # self.model = torch.compile(self.model)
 
     @classmethod
     def load_training_data(cls):
@@ -198,31 +186,20 @@ if __name__ == '__main__':
             print('Making working directory {}'.format(args.work_dir))
             os.makedirs(args.work_dir)
         print('Instatiating model')
-        # model = MyModel()
+        model = MyModel()
         print('Loading training data')
-        # train_data = MyModel.load_training_data()
+        train_data = MyModel.load_training_data()
         print('Training')
-        # model.run_train(train_data, args.work_dir)
+        model.run_train(train_data, args.work_dir)
         print('Saving model')
-        # model.save(args.work_dir)
+        model.save(args.work_dir)
     elif args.mode == 'test':
         print('Loading model')
         model = MyModel.load(args.work_dir)
         print('Loading test data from {}'.format(args.test_data))
         test_data = MyModel.load_test_data(args.test_data)
         print('Making predictions')
-        batch_sizes = [2, 4, 8]
-        max_lengths = [16]
-        for batch_size in batch_sizes:
-            for max_length in max_lengths:
-                try:
-                    if batch_size >= 16 and max_lengths >= 8:
-                        print(f"skipping batch size {batch_size} and max_length {max_length}")
-                        continue
-                    print(f"running preds for batch size {batch_size} and max length {max_length}")
-                    pred = model.run_pred(test_data, batch_size=batch_size, max_length=max_length)
-                except torch.cuda.OutOfMemoryError:
-                    print(f"Cuda oom at batch size {batch_size}, max length {max_length}")
+        pred = model.run_pred(test_data, batch_size=8, max_length=16)
         print('Writing predictions to {}'.format(args.test_output))
         assert len(pred) == len(test_data), 'Expected {} predictions but got {}'.format(len(test_data), len(pred))
         model.write_pred(pred, args.test_output)
