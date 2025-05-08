@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import os
 import random
 import time
@@ -7,27 +7,28 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
+
 class MyModel:
     """
-    Byte-level next-character predictor using EvaByte.
+    This is a starter model to get you started. Feel free to modify this file.
     """
 
     def __init__(self):
-        # Load the EvaByte tokenizer & model (byte-level, causal)
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            "evabyte/EvaByte", trust_remote_code=True
-        )
-        self.model = AutoModelForCausalLM.from_pretrained(
-            "evabyte/EvaByte",
-            torch_dtype=torch.bfloat16,
-            trust_remote_code=True,
-            device_map="auto"
-        ).eval()
+        self.tokenizer = AutoTokenizer.from_pretrained("evabyte/EvaByte", trust_remote_code=True)
+        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", torch_dtype=torch.bfloat16, trust_remote_code=True).eval().to("cuda")
+        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", torch_dtype=torch.bfloat16, trust_remote_code=True, load_in_8bit=True).eval().to("cuda")
+        #     assert q.dtype in [torch.bfloat16, torch.float], "Only support bf16 and fp32 for now"
+        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", device_map="auto", trust_remote_code=True, load_in_8bit=True).eval()
+        # self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", device_map="auto", trust_remote_code=True).eval()
+        self.model = AutoModelForCausalLM.from_pretrained("evabyte/EvaByte", device_map="auto", torch_dtype=torch.bfloat16, trust_remote_code=True).eval()
+        # "W0506 07:43:07.249000 28992 site-packages/torch/_inductor/utils.py:1137] [0/0] Not enough SMs to use max_autotune_gemm mode"
+        # very, very slow.
+        # self.model = torch.compile(self.model)
+        # warmup attempt for better perf reading:
+        # _ = self.model(input_ids=torch.zeros(1,16,device="cuda",dtype=torch.long), use_cache=False)
+        # torch.cuda.synchronize()
+        # self.model = torch.compile(self.model)
 
-        # Configure tokenizer to truncate left (keep last bytes) and pad right
-        self.tokenizer.truncation_side = "left"
-        self.tokenizer.padding_side    = "right"
-    
     @classmethod
     def load_training_data(cls):
         # your code here
@@ -54,237 +55,131 @@ class MyModel:
         # your code here
         pass
 
-    def run_pred(self, data, batch_size: int = 4, max_length: int = 2):
-        """
-        Minibatched byte-level inference with EvaByte.
-        Predicts exactly one byte per prompt, which you can decode
-        directly into the next character (for ASCII).
-        """
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(device)
+    def run_pred(self, data):
+        """only one that has correct predictions outputted."""
+        # your code here
+        device = "cuda"
+        torch.cuda.reset_peak_memory_stats(device)    # ← (1) clear any previous peaks
+        preds = []
+        start = time.time()
+        for prompt in data:
+            encoded = self.tokenizer(prompt, return_tensors="pt")
+            input_ids = encoded.input_ids.to("cuda")
+            seq_len = input_ids.shape[1]
+            position_ids = torch.arange(seq_len, dtype=torch.long, device="cuda").unsqueeze(0)
+            with torch.no_grad():
+                logits = self.model(input_ids=input_ids, position_ids=position_ids)[0]
+            next_logits = logits[0, -1, :]
+            topk = torch.topk(next_logits, k=3)
+            top_ids = topk.indices.tolist()
+            top_tokens_decoded = self.tokenizer.batch_decode([[tid] for tid in top_ids], clean_up_tokenization_spaces=False)
+            preds.append(''.join(top_tokens_decoded))
+        end = time.time()
+        elapsed = end - start
+        samples_per_sec = float(len(data)) / elapsed
+        print(f"total inference time: {elapsed:.03f} for {len(data)} samples. {samples_per_sec:.03f} samples/sec")
 
-        if device.type == "cuda":
+        peak_bytes = torch.cuda.max_memory_allocated(device)
+        peak_gb    = peak_bytes / (1024 ** 3)
+        print(f"peak GPU memory allocated: {peak_gb:.2f} GB")
+        return preds
+
+    # loop over this
+    def run_pred(self, data, batch_size: int = 8, max_length: int = 16):
+        """
+        Batched next-character prediction with EvaByte.
+        Each line of the output contains the 3 most-likely next bytes/characters.
+
+        max_length >= 16 is necessary to get acceptable accuracy (on example set).
+
+        batch size, max_length:
+        - 1, 12: 13683MiB, 60-80%
+        - total inference time: 151.830s for 2000 samples (13.173 samples/sec)
+        - peak GPU memory allocated: 13.11 GB
+        - 16, [8-64]: OOM
+        - 
+        """
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        if device == "cuda":
             torch.cuda.reset_peak_memory_stats(device)
+
+        # make sure we have a pad token ID (EvaByte defines one, but be safe)
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
 
         preds = []
         t0 = time.time()
         total = len(data)
 
-        for start_idx in range(0, total, batch_size):
-            batch = data[start_idx : start_idx + batch_size]
-            print(f"Batch {start_idx//batch_size+1}/{(total-1)//batch_size+1} "
-                  f"({start_idx}/{total} prompts)")
+        for start in range(0, total, batch_size):
+            batch_prompts = data[start:start + batch_size]
+            print(f"batch {start//batch_size+1}/{(total-1)//batch_size+1} "
+                  f"({start}/{total})")
 
-            # 1) Tokenize batch of raw strings -> byte tokens
-            enc = self.tokenizer(
-                batch,
-                return_tensors="pt",
-                padding="longest",
-                truncation=True,
-                max_length=max_length,
-                return_attention_mask=True
-            ).to(device, non_blocking=True)
-
-            # 2) Generate exactly 1 new token (byte) per prompt
-            with torch.inference_mode():
-                out_ids = self.model.generate(
-                    input_ids=enc.input_ids,
-                    attention_mask=enc.attention_mask,
-                    max_new_tokens=1,
-                    do_sample=False,
-                    use_cache=False,            # disable kv-cache to avoid Triton assertions
-                )
-                # out_ids.shape == (batch_size, seq_len+1)
-
-            # 3) Extract the newly generated byte for each example
-            seq_len = enc.input_ids.size(1)
-            gen_ids = out_ids[:, seq_len]  # the byte at position seq_len
-
-            # 4) Decode each byte token into a (single) character string
-            for byte_id in gen_ids:
-                ch = self.tokenizer.decode(
-                    [int(byte_id)],
-                    clean_up_tokenization_spaces=False,
-                    skip_special_tokens=False
-                )
-                preds.append(ch)
-
-        # Final stats
-        elapsed = time.time() - t0
-        print(f"Done {total} samples in {elapsed:.2f}s "
-              f"({total/elapsed:.2f} samples/sec)")
-        if device.type == "cuda":
-            peak_gb = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
-            print(f"Peak GPU memory allocated: {peak_gb:.2f} GB")
-
-        return preds
-
-    def run_pred_batch(self, data, batch_size: int = 32):
-        """
-        Minibatched inference:
-
-        - byt5-xl: 
-        """
-        # TODO: cpu mode isn't quite ready -- need some changes to make apple mps (metal performance shaders) work.
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        if device == "cuda":
-            torch.cuda.reset_peak_memory_stats(device)
-        preds = []
-        start = time.time()
-        num_prompts = len(data)
-        batch_count = 0
-        for idx in range(0, num_prompts, batch_size):
-            batch_count += 1
-            start_batch = time.time()
-            batch_prompts = data[idx : idx + batch_size]
-            done = min(idx, num_prompts)
-            print(f"batch {idx / batch_size}/{len(data) // batch_size}; {done}/{num_prompts} inferences")
-
-            # Tokenize the whole batch, pad to longest in batch
+            # tokenize & pad to longest sequence in the batch
             encoded = self.tokenizer(
                 batch_prompts,
                 return_tensors="pt",
-                truncation=True,
-                max_length=1024,
                 padding=True,
-            ).to(device)
-            
-
-            """
-            with torch.inference_mode():
-                output_ids = self.model.generate(
-                    **encoded,
-                    max_new_tokens=1,
-                    do_sample=False
-                )
-            """
-            with torch.inference_mode():
-                out_ids = self.model.generate(
-                    input_ids=encoded.input_ids,
-                    attention_mask=encoded.attention_mask,
-                    max_new_tokens=1,
-                    do_sample=False,
-                )
-
-            for tid in out_ids[:, 0]:
-                # skip_special_tokens=True will drop <pad>/<eos> if they appear
-                preds.append(self.tokenizer.decode(
-                    [int(tid)],
-                    skip_special_tokens=True,
-                    clean_up_tokenization_spaces=False
-                ))
-            # grab the generated token for each in the batch
-            # output_ids shape: (batch, seq_len+1)
-            # so we take output_ids[:, -1]
-            # next_ids = output_ids[:, -1]
-            # decode each single-token tensor
-            """
-            for tid in next_ids:
-                preds.append(
-                    self.tokenizer.decode(
-                        [int(tid)],
-                        clean_up_tokenization_spaces=False
-                    )
-                )
-            """
-            end_batch = time.time()
-            elapsed_batch = end_batch - start_batch
-            samples_per_sec_batch = batch_size / elapsed_batch
-            print(f"minibatch with {batch_size} samples: {elapsed_batch * 1000:.03f} ms ({samples_per_sec_batch:.03f} samples/sec)")
-
-        end = time.time()
-        elapsed = end - start
-        samples_per_sec = len(data) / elapsed
-        if device == "cuda":
-            torch.cuda.reset_peak_memory_stats(device)
-            peak_gb = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
-
-        print(f"total inference time: {elapsed:.03f}s for {num_prompts} samples "
-            f"({samples_per_sec:.03f} samples/sec)")
-        if device == "cuda":
-            print(f"peak GPU memory allocated: {peak_gb:.2f} GB")
-        return preds
-
-    def run_pred_single(self, data):
-        """
-        Predicts without batching:
-        - 
-
-        - with byt5-small: ~39 samples/sec without batching, peak 0.57GB mem allocated.
-          - nvidia-smi on 20K examples: 849MiB/23034MiB, ~15-20%
-        - with byt5-xl: ~16 samples/sec, 6.97GB peak. (~2x model), on 20K.
-        """
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        torch.cuda.reset_peak_memory_stats(device)
-        preds = []
-        start = time.time()
-        num_prompts = len(data)
-        for idx, prompt in enumerate(data):
-            if idx % 100 == 0:
-                elapsed = time.time() - start
-                samples_per_sec = idx / elapsed
-                print(f"{idx}/{num_prompts} inferences done, {samples_per_sec:.03f} samples/sec")
-            
-            encoded = self.tokenizer(
-                prompt,
-                return_tensors="pt",
                 truncation=True,
-                max_length=1024,  # arbitrary; default is 1e30.
-            ).to(device)
-            self.tokenizer.truncation_side = "left" # we're interested in rightmost bytes.
+                max_length=max_length,
+                return_attention_mask=False
+            )
+            self.tokenizer.truncation_side = "left"
+            self.tokenizer.padding_side    = "right"
+            input_ids = encoded.input_ids.to(device)
 
-            with torch.inference_mode():
-                output_ids = self.model.generate(
-                    **encoded,
-                    max_new_tokens=1,
-                    do_sample=False
-                )
-            print(f"output_ids: {output_ids}")
+            # seq_len per example (number of non-pad tokens)
+            pad_id = self.tokenizer.pad_token_id
+            seq_lens = (input_ids != pad_id).sum(dim=1)     # (batch,)
 
-            # pred_char = self.tokenizer.decode(next_token, clean_up_tokenization_spaces=False)
-            # Get token IDs after <pad> (ID 0)
-            generated_ids = output_ids[0][1:]  # skip the <pad> token
+            # 2. Build position_ids tensor
+            max_len = input_ids.size(1)
+            position_ids = torch.arange(max_len, dtype=torch.long,
+                                        device=device).unsqueeze(0).expand_as(input_ids)
 
-            if len(generated_ids) == 0:
-                pred_char = ""
-            else:
-                pred_char = self.tokenizer.decode(
-                    generated_ids,
-                    skip_special_tokens=False,
+            # 3. Forward pass
+            with torch.no_grad():
+                logits = self.model(
+                    input_ids=input_ids,
+                    position_ids=position_ids
+                )[0]                       # shape (batch, max_len, vocab)
+
+            # 4. Collect top-3 next-byte predictions for each prompt
+            for i, L in enumerate(seq_lens):
+                next_logits = logits[i, L - 1]              # logits at last real token
+                top_ids = torch.topk(next_logits, k=3).indices.tolist()
+                top_chars = self.tokenizer.batch_decode(
+                    [[tid] for tid in top_ids],
                     clean_up_tokenization_spaces=False
                 )
-            preds.append(pred_char)
+                preds.append("".join(top_chars))
 
-            print(f"prompt: {prompt}")
-            print(f"pred_char: {pred_char}")
+        #  5. Stats
+        elapsed = time.time() - t0
+        print(f"total inference time for batch_size {batch_size}. max length {max_length}: {elapsed:.3f}s for {total} samples "
+              f"({total/elapsed:.3f} samples/sec)")
 
-        print(f"prompt: {prompt}")
-        print(f"preds: {preds}")
-        end = time.time()
-        elapsed = end - start
-        samples_per_sec = len(data) / elapsed
-        peak_gb = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+        if device == "cuda":
+            peak_gb = torch.cuda.max_memory_allocated(device) / (1024**3)
+            print(f"peak GPU memory allocated: {peak_gb:.2f} GB")
 
-        print(f"total inference time: {elapsed:.03f}s for {len(data)} samples "
-            f"({samples_per_sec:.03f} samples/sec)")
-        print(f"peak GPU memory allocated: {peak_gb:.2f} GB") # 
         return preds
+
 
     def save(self, work_dir):
-        pass
         # your code here
         # this particular model has nothing to save, but for demonstration purposes we will save a blank file
-        # with open(os.path.join(work_dir, 'model.checkpoint'), 'wt') as f:
-            # f.write('dummy save')
+        with open(os.path.join(work_dir, 'model.checkpoint'), 'wt') as f:
+            f.write('dummy save')
 
     @classmethod
     def load(cls, work_dir):
-        pass
         # your code here
         # this particular model has nothing to load, but for demonstration purposes we will load a blank file
-        # with open(os.path.join(work_dir, 'model.checkpoint')) as f:
-            # dummy_save = f.read()
+        with open(os.path.join(work_dir, 'model.checkpoint')) as f:
+            dummy_save = f.read()
         return MyModel()
 
 
@@ -316,7 +211,18 @@ if __name__ == '__main__':
         print('Loading test data from {}'.format(args.test_data))
         test_data = MyModel.load_test_data(args.test_data)
         print('Making predictions')
-        pred = model.run_pred(test_data)
+        batch_sizes = [2, 4, 8]
+        max_lengths = [16]
+        for batch_size in batch_sizes:
+            for max_length in max_lengths:
+                try:
+                    if batch_size >= 16 and max_lengths >= 8:
+                        print(f"skipping batch size {batch_size} and max_length {max_length}")
+                        continue
+                    print(f"running preds for batch size {batch_size} and max length {max_length}")
+                    pred = model.run_pred(test_data, batch_size=batch_size, max_length=max_length)
+                except torch.cuda.OutOfMemoryError:
+                    print(f"Cuda oom at batch size {batch_size}, max length {max_length}")
         print('Writing predictions to {}'.format(args.test_output))
         assert len(pred) == len(test_data), 'Expected {} predictions but got {}'.format(len(test_data), len(pred))
         model.write_pred(pred, args.test_output)

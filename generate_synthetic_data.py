@@ -25,9 +25,9 @@ def load_sentences():
     return sents
 
 def generate_dataset(
-    n=20000,
+    n=2000,
     min_len=5,
-    max_len=300,
+    max_len=100,
     input_path="data/input.txt",
     answer_path="data/answer.txt",
     joined_path="data/joined.txt"
